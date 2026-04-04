@@ -12,8 +12,18 @@ from sqlalchemy import Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.lib.crud import CRUDMixin, CRUDPlugin
+from app.lib.crud.service import CRUDService
 from app.lib.security import litestar_users
 from tests.conftest import USER_EMAIL, USER_PASSWORD
+
+
+class TitleCaseService(CRUDService):  # type: ignore[type-arg]
+    """Test service that title-cases the name field on create."""
+
+    async def before_create(self, data: dict) -> dict:
+        if "name" in data:
+            data["name"] = data["name"].title()
+        return data
 
 
 class Item(UUIDBase, CRUDMixin):
@@ -42,6 +52,19 @@ class ReadOnlyItem(UUIDBase, CRUDMixin):
 class NoCrudModel(UUIDBase, CRUDMixin):
     __tablename__ = "test_no_crud"
     value: Mapped[str] = mapped_column(String(100))
+
+
+class HookedItem(UUIDBase, CRUDMixin):
+    """Test model with a custom service."""
+
+    __tablename__ = "test_hooked_item"
+
+    name: Mapped[str] = mapped_column(String(100))
+
+    class CRUDMeta:
+        operations = {"create", "read"}
+        service_class = TitleCaseService
+        public_operations = {"create", "read"}
 
 
 @pytest.fixture()
@@ -145,3 +168,42 @@ def test_list_pagination_params(crud_client: TestClient) -> None:
     data = resp.json()
     assert data["limit"] == 5
     assert data["offset"] == 0
+
+
+def test_full_crud_lifecycle(authenticated_crud_client: TestClient) -> None:
+    """Test create → read → update → list → delete → confirm gone."""
+    client = authenticated_crud_client
+
+    # Create
+    resp = client.post("/test-items", json={"name": "Lifecycle Item", "active": True})
+    assert resp.status_code == 201
+    item_id = resp.json()["id"]
+
+    # Read
+    resp = client.get(f"/test-items/{item_id}")
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Lifecycle Item"
+
+    # Update
+    resp = client.patch(f"/test-items/{item_id}", json={"name": "Updated Item"})
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Updated Item"
+
+    # List (should contain the item)
+    resp = client.get("/test-items")
+    assert resp.status_code == 200
+    assert resp.json()["total"] >= 1
+
+    # Delete
+    resp = client.delete(f"/test-items/{item_id}")
+    assert resp.status_code == 204
+
+    # Confirm gone
+    resp = client.get(f"/test-items/{item_id}")
+    assert resp.status_code == 404
+
+
+def test_custom_service_hook_transforms_data(crud_client: TestClient) -> None:
+    resp = crud_client.post("/test-hooked-items", json={"name": "hello world"})
+    assert resp.status_code == 201
+    assert resp.json()["name"] == "Hello World"
