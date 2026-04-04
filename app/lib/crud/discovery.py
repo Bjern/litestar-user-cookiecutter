@@ -19,5 +19,5 @@ def discover_models(domain_path: str = "app/domain") -> list[type]:
     return [
         cls
         for cls in UUIDBase.__subclasses__()
-        if issubclass(cls, CRUDMixin) and cls.CRUDMeta.operations
+        if issubclass(cls, CRUDMixin) and cls.CRUDMeta.operations  # type: ignore[attr-defined]
     ]
