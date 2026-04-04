@@ -267,6 +267,123 @@ sequenceDiagram
     A-->>C: 201 + Clear-Cookie
 ```
 
+## Auto-CRUD Plugin
+
+The project includes a plugin that auto-generates CRUD API endpoints from model definitions. No routes, schemas, or DTOs to write — just define a model with `CRUDMixin` and configure which operations to expose.
+
+### Quick Start
+
+1. Create a domain folder and model:
+
+```python
+# app/domain/products/models.py
+from advanced_alchemy.base import UUIDBase
+from sqlalchemy import String, Float, Boolean
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.lib.crud.mixin import CRUDMixin
+
+
+class Product(UUIDBase, CRUDMixin):
+    name: Mapped[str] = mapped_column(String(255))
+    price: Mapped[float] = mapped_column(Float)
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    class CRUDMeta:
+        operations = {"create", "read", "list", "update", "delete"}
+        tags = ["Products"]
+```
+
+2. Create `app/domain/products/__init__.py` (empty file).
+
+3. Run migrations:
+
+```bash
+uv run alembic revision --autogenerate -m "add products"
+uv run alembic upgrade head
+```
+
+4. Start the app — Product endpoints appear in Swagger automatically.
+
+### Generated Endpoints
+
+Based on `CRUDMeta.operations`, the plugin generates:
+
+| Operation | Method | Path | Description |
+|-----------|--------|------|-------------|
+| `list` | GET | `/products` | Paginated list (`?limit=20&offset=0`) |
+| `create` | POST | `/products` | Create a record |
+| `read` | GET | `/products/{id}` | Get by ID |
+| `update` | PATCH | `/products/{id}` | Partial update |
+| `delete` | DELETE | `/products/{id}` | Delete by ID |
+
+The URL path is auto-derived from the table name (pluralized). Override with `path = "/custom-path"`.
+
+### CRUDMeta Configuration
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `operations` | `set[str]` | `set()` | Which endpoints to generate (nothing by default) |
+| `path` | `str \| None` | `None` | URL prefix (auto-pluralizes table name if `None`) |
+| `tags` | `list[str] \| None` | `None` | Swagger tags for grouping |
+| `exclude_fields` | `set[str]` | `{"sa_orm_sentinel"}` | Fields excluded from API responses |
+| `public_operations` | `set[str]` | `set()` | Operations that skip auth |
+| `filterable_fields` | `set[str]` | `set()` | Columns exposed as query params on list |
+| `service_class` | `type \| None` | `None` | Custom service class for lifecycle hooks |
+
+### Auth
+
+All generated routes require auth by default (via the app-level session middleware). Use `public_operations` to make specific operations public:
+
+```python
+class CRUDMeta:
+    operations = {"create", "read", "list"}
+    public_operations = {"read", "list"}  # these skip auth, create still requires it
+```
+
+### Filtering
+
+Opt-in per field. Listed fields become query params on the list endpoint:
+
+```python
+class CRUDMeta:
+    operations = {"list"}
+    filterable_fields = {"is_available", "name"}
+
+# GET /products?is_available=true&name=Widget
+```
+
+### Custom Service Hooks
+
+Override lifecycle hooks for custom business logic without touching routes:
+
+```python
+# app/domain/products/services.py
+from app.lib.crud.service import CRUDService
+
+
+class ProductService(CRUDService):
+    async def before_create(self, data: dict) -> dict:
+        data["name"] = data["name"].strip().title()
+        return data
+
+    async def after_delete(self, id) -> None:
+        logger.info("product.deleted | id={id}", id=id)
+```
+
+```python
+# In your model:
+from app.domain.products.services import ProductService
+
+class Product(UUIDBase, CRUDMixin):
+    ...
+    class CRUDMeta:
+        operations = {"create", "read", "list", "delete"}
+        service_class = ProductService
+```
+
+Available hooks: `before_create`, `after_create`, `before_update`, `after_update`, `before_delete`, `after_delete`.
+
 ## Testing
 
 ```bash
