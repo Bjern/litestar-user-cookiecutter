@@ -78,9 +78,19 @@ def _make_service_provider(
     return provide_crud_service
 
 
+def _model_to_dict(instance: Any, exclude_fields: set[str]) -> dict[str, Any]:
+    """Convert a SQLAlchemy model instance to a plain dict, excluding specified fields."""
+    return {
+        c.key: getattr(instance, c.key)
+        for c in instance.__table__.columns
+        if c.key not in exclude_fields and hasattr(instance, c.key)
+    }
+
+
 def _make_list_handler(
     model: type,
     read_dto: type,
+    exclude_fields: set[str],
     dependencies: dict[str, Any],
     public: bool,
     tags: list[str] | None,
@@ -89,7 +99,6 @@ def _make_list_handler(
 
     @get(
         path="/",
-        return_dto=read_dto,
         dependencies=dependencies,
         exclude_from_auth=public,
         tags=tags,
@@ -100,7 +109,8 @@ def _make_list_handler(
         offset: int = Parameter(default=0, ge=0, query="offset"),
     ) -> PaginatedResponse:  # type: ignore[type-arg]
         items, total = await service.repository.list_and_count(LimitOffset(limit=limit, offset=offset))
-        return PaginatedResponse(items=items, total=total, limit=limit, offset=offset)
+        serialized = [_model_to_dict(item, exclude_fields) for item in items]
+        return PaginatedResponse(items=serialized, total=total, limit=limit, offset=offset)
 
     return list_handler
 
@@ -257,7 +267,7 @@ def build_crud_router(model: type, meta: type) -> Router:
     handlers: list[Any] = []
 
     if "list" in operations:
-        handlers.append(_make_list_handler(model, read_dto, dependencies, "list" in public_operations, tags))
+        handlers.append(_make_list_handler(model, read_dto, exclude_fields, dependencies, "list" in public_operations, tags))
 
     if "create" in operations:
         handlers.append(_make_create_handler(model, create_dto, read_dto, dependencies, "create" in public_operations, tags))
