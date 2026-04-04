@@ -8,9 +8,9 @@ from advanced_alchemy.base import UUIDBase
 
 # Import all models so Alembic can detect them
 from app.lib.crud.discovery import discover_models
+from app.lib.settings import get_settings
 
 discover_models()
-from app.lib.settings import get_settings
 
 config = context.config
 
