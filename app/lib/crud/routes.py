@@ -15,10 +15,7 @@ from app.lib.crud.service import CRUDService
 
 
 def _pluralize(name: str) -> str:
-    """Naive pluralization for URL paths.
-
-    Converts a snake_case table name to a kebab-case plural path segment.
-    """
+    """Convert a snake_case table name to a kebab-case plural path segment."""
     kebab = name.replace("_", "-")
     if kebab.endswith("s"):
         return kebab + "es"
@@ -91,11 +88,16 @@ def _make_list_handler(
     model: type,
     read_dto: type,
     exclude_fields: set[str],
+    filterable_fields: set[str],
     dependencies: dict[str, Any],
     public: bool,
     tags: list[str] | None,
 ) -> Any:
-    """Factory for list handler to ensure proper type hint resolution."""
+    """Factory for list handler with pagination and optional filtering."""
+    # Capture filterable_fields in closure for the handler
+    _filterable = filterable_fields
+    _model = model
+    _exclude = exclude_fields
 
     @get(
         path="/",
@@ -107,10 +109,40 @@ def _make_list_handler(
         service: CRUDService,  # type: ignore[type-arg]
         limit: int = Parameter(default=20, ge=1, le=100, query="limit"),
         offset: int = Parameter(default=0, ge=0, query="offset"),
+        **kwargs: Any,
     ) -> PaginatedResponse:  # type: ignore[type-arg]
-        items, total = await service.repository.list_and_count(LimitOffset(limit=limit, offset=offset))
-        serialized = [_model_to_dict(item, exclude_fields) for item in items]
+        filters_list: list[Any] = [LimitOffset(limit=limit, offset=offset)]
+        for field_name in _filterable:
+            value = kwargs.get(field_name)
+            if value is not None:
+                # Convert string booleans from query params
+                col = getattr(_model, field_name)
+                if str(value).lower() in ("true", "false"):
+                    value = str(value).lower() == "true"
+                filters_list.append(col == value)
+        items, total = await service.repository.list_and_count(*filters_list)
+        serialized = [_model_to_dict(item, _exclude) for item in items]
         return PaginatedResponse(items=serialized, total=total, limit=limit, offset=offset)
+
+    # Add filterable fields to handler signature so Litestar exposes them as query params
+    if _filterable:
+        import inspect
+        from litestar.params import Parameter as LitestarParam
+
+        fn = list_handler.fn  # type: ignore[union-attr]
+        sig = inspect.signature(fn)
+        new_params = [p for p in sig.parameters.values() if p.kind != inspect.Parameter.VAR_KEYWORD]
+        for field_name in sorted(_filterable):
+            new_params.append(
+                inspect.Parameter(
+                    field_name,
+                    inspect.Parameter.KEYWORD_ONLY,
+                    default=LitestarParam(default=None, query=field_name, required=False),
+                    annotation=str | None,
+                )
+            )
+            fn.__annotations__[field_name] = str | None  # type: ignore[union-attr]
+        fn.__signature__ = sig.replace(parameters=new_params)  # type: ignore[attr-defined]
 
     return list_handler
 
@@ -143,11 +175,9 @@ def _make_create_handler(
         for key, value in processed.items():
             setattr(data, key, value)
         item = await service.repository.add(data)
-        await service.session.flush()
         await service.after_create(item)
         return item
 
-    # Patch annotations so get_type_hints() can resolve 'model'
     fn = create_handler.fn  # type: ignore[union-attr]
     fn.__annotations__ = {"data": model, "service": CRUDService, "return": model}
     return create_handler
@@ -203,10 +233,12 @@ def _make_update_handler(
         data: model,  # type: ignore[valid-type]
         service: CRUDService,  # type: ignore[type-arg]
     ) -> model:  # type: ignore[valid-type]
+        # The partial DTO sets unset fields to None. Filter them out, but
+        # allow explicit null for nullable columns.
         update_data = {
             c.key: getattr(data, c.key)
             for c in data.__table__.columns  # type: ignore[union-attr, attr-defined]
-            if hasattr(data, c.key) and getattr(data, c.key) is not None
+            if c.key != "id" and hasattr(data, c.key) and getattr(data, c.key) is not None
         }
         processed = await service.before_update(item_id, update_data)
         existing = await service.repository.get(item_id)
@@ -242,7 +274,6 @@ def _make_delete_handler(
     ) -> None:
         await service.before_delete(item_id)
         await service.repository.delete(item_id)
-        await service.session.flush()
         await service.after_delete(item_id)
 
     return delete_handler
@@ -250,12 +281,16 @@ def _make_delete_handler(
 
 def build_crud_router(model: type, meta: type) -> Router:
     """Build a Litestar Router with CRUD handlers for the given model."""
-    operations: set[str] = _get_meta_attr(meta, "operations", set())
+    operations: set[str] = set(_get_meta_attr(meta, "operations", set()))
     path: str | None = _get_meta_attr(meta, "path", None)
     tags: list[str] | None = _get_meta_attr(meta, "tags", None)
-    exclude_fields: set[str] = _get_meta_attr(meta, "exclude_fields", {"sa_orm_sentinel"})
-    public_operations: set[str] = _get_meta_attr(meta, "public_operations", set())
+    exclude_fields: set[str] = set(_get_meta_attr(meta, "exclude_fields", {"sa_orm_sentinel"}))
+    public_operations: set[str] = set(_get_meta_attr(meta, "public_operations", set()))
+    filterable_fields: set[str] = set(_get_meta_attr(meta, "filterable_fields", set()))
     service_class: type | None = _get_meta_attr(meta, "service_class", None)
+
+    # Always exclude sa_orm_sentinel even if the model overrides exclude_fields
+    exclude_fields.add("sa_orm_sentinel")
 
     if path is None:
         path = "/" + _pluralize(model.__tablename__)  # type: ignore[attr-defined]
@@ -267,7 +302,7 @@ def build_crud_router(model: type, meta: type) -> Router:
     handlers: list[Any] = []
 
     if "list" in operations:
-        handlers.append(_make_list_handler(model, read_dto, exclude_fields, dependencies, "list" in public_operations, tags))
+        handlers.append(_make_list_handler(model, read_dto, exclude_fields, filterable_fields, dependencies, "list" in public_operations, tags))
 
     if "create" in operations:
         handlers.append(_make_create_handler(model, create_dto, read_dto, dependencies, "create" in public_operations, tags))

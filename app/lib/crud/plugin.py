@@ -13,10 +13,18 @@ if TYPE_CHECKING:
 
 
 class CRUDPlugin(InitPlugin):
-    """Litestar plugin that auto-generates CRUD routes from CRUDMixin models."""
+    """Litestar plugin that auto-generates CRUD routes from CRUDMixin models.
+
+    Args:
+        models: Optional list of model classes to register. If provided, these
+            are used instead of auto-discovery. Useful for testing.
+    """
+
+    def __init__(self, models: list[type] | None = None) -> None:
+        self._explicit_models = models
 
     def on_app_init(self, app_config: AppConfig) -> AppConfig:
-        models = discover_models()
+        models = self._explicit_models if self._explicit_models is not None else discover_models()
         for model in models:
             router = build_crud_router(model, model.CRUDMeta)  # type: ignore[attr-defined]
             app_config.route_handlers.append(router)

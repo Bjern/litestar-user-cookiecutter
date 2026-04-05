@@ -77,7 +77,7 @@ def crud_client():
         metadata=UUIDBase.metadata,
     )
     db_plugin = SQLAlchemyInitPlugin(config=db_config)
-    crud_plugin = CRUDPlugin()
+    crud_plugin = CRUDPlugin(models=[Item, ReadOnlyItem, HookedItem])
 
     app = Litestar(
         route_handlers=[],
@@ -207,3 +207,58 @@ def test_custom_service_hook_transforms_data(crud_client: TestClient) -> None:
     resp = crud_client.post("/test-hooked-items", json={"name": "hello world"})
     assert resp.status_code == 201
     assert resp.json()["name"] == "Hello World"
+
+
+# --- Filtering ---
+
+
+def test_list_filter_by_active(authenticated_crud_client: TestClient) -> None:
+    client = authenticated_crud_client
+    client.post("/test-items", json={"name": "Active", "active": True})
+    client.post("/test-items", json={"name": "Inactive", "active": False})
+    resp = client.get("/test-items?active=true")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] >= 1
+    assert all(item["active"] is True for item in data["items"])
+
+
+def test_list_without_filter_returns_all(authenticated_crud_client: TestClient) -> None:
+    client = authenticated_crud_client
+    client.post("/test-items", json={"name": "One", "active": True})
+    client.post("/test-items", json={"name": "Two", "active": False})
+    resp = client.get("/test-items")
+    assert resp.status_code == 200
+    assert resp.json()["total"] >= 2
+
+
+# --- Exclude fields ---
+
+
+def test_exclude_fields_not_in_response(authenticated_crud_client: TestClient) -> None:
+    client = authenticated_crud_client
+    resp = client.post("/test-items", json={"name": "Widget", "active": True})
+    assert resp.status_code == 201
+    data = resp.json()
+    assert "sa_orm_sentinel" not in data
+
+
+def test_exclude_fields_not_in_list_response(crud_client: TestClient) -> None:
+    resp = crud_client.get("/test-items")
+    assert resp.status_code == 200
+    for item in resp.json()["items"]:
+        assert "sa_orm_sentinel" not in item
+
+
+# --- Create DTO excludes id ---
+
+
+def test_create_ignores_submitted_id(authenticated_crud_client: TestClient) -> None:
+    client = authenticated_crud_client
+    resp = client.post(
+        "/test-items",
+        json={"name": "WithId", "active": True, "id": "00000000-0000-0000-0000-000000000000"},
+    )
+    assert resp.status_code == 201
+    # The server should assign its own id, not use the submitted one
+    assert resp.json()["id"] != "00000000-0000-0000-0000-000000000000"

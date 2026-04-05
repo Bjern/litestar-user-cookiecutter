@@ -1,13 +1,16 @@
 class CRUDMeta:
     """Default CRUDMeta configuration. Models override this via inner class."""
 
-    operations: set[str] = set()
+    operations: frozenset[str] = frozenset()
     path: str | None = None
     tags: list[str] | None = None
-    exclude_fields: set[str] = {"sa_orm_sentinel"}
-    public_operations: set[str] = set()
-    filterable_fields: set[str] = set()
+    exclude_fields: frozenset[str] = frozenset({"sa_orm_sentinel"})
+    public_operations: frozenset[str] = frozenset()
+    filterable_fields: frozenset[str] = frozenset()
     service_class: type | None = None
+
+
+VALID_OPERATIONS = frozenset({"create", "read", "list", "update", "delete"})
 
 
 class CRUDMixin:
