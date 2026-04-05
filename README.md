@@ -4,6 +4,7 @@
 ![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
 ![Litestar](https://img.shields.io/badge/litestar-2.x-purple)
 ![Bandit](https://img.shields.io/badge/security-bandit-yellow)
+![Coverage](https://img.shields.io/badge/coverage-91%25-brightgreen)
 
 A Litestar web API cookiecutter with built-in user authentication, powered by [litestar-users](https://github.com/mvbosch/litestar-users), and an auto-CRUD plugin that generates REST endpoints from your database models — define a model, run a migration, and your API is ready.
 
