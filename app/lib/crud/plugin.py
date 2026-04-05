@@ -24,7 +24,11 @@ class CRUDPlugin(InitPlugin):
         self._explicit_models = models
 
     def on_app_init(self, app_config: AppConfig) -> AppConfig:
-        models = self._explicit_models if self._explicit_models is not None else discover_models()
+        models = (
+            self._explicit_models
+            if self._explicit_models is not None
+            else discover_models()
+        )
         for model in models:
             router = build_crud_router(model, model.CRUDMeta)  # type: ignore[attr-defined]
             app_config.route_handlers.append(router)

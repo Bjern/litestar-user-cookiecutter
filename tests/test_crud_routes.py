@@ -5,7 +5,10 @@ os.environ.setdefault("AUTO_VERIFY_USERS", "true")
 
 import pytest
 from advanced_alchemy.base import UUIDBase
-from advanced_alchemy.extensions.litestar import SQLAlchemyAsyncConfig, SQLAlchemyInitPlugin
+from advanced_alchemy.extensions.litestar import (
+    SQLAlchemyAsyncConfig,
+    SQLAlchemyInitPlugin,
+)
 from litestar import Litestar
 from litestar.testing import TestClient
 from sqlalchemy import Boolean, String
@@ -116,7 +119,9 @@ def test_create_item_requires_auth(crud_client: TestClient) -> None:
 
 
 def test_create_item(authenticated_crud_client: TestClient) -> None:
-    resp = authenticated_crud_client.post("/test-items", json={"name": "test", "active": True})
+    resp = authenticated_crud_client.post(
+        "/test-items", json={"name": "test", "active": True}
+    )
     assert resp.status_code == 201
     data = resp.json()
     assert data["name"] == "test"
@@ -257,7 +262,11 @@ def test_create_ignores_submitted_id(authenticated_crud_client: TestClient) -> N
     client = authenticated_crud_client
     resp = client.post(
         "/test-items",
-        json={"name": "WithId", "active": True, "id": "00000000-0000-0000-0000-000000000000"},
+        json={
+            "name": "WithId",
+            "active": True,
+            "id": "00000000-0000-0000-0000-000000000000",
+        },
     )
     assert resp.status_code == 201
     # The server should assign its own id, not use the submitted one

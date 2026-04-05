@@ -29,9 +29,7 @@ def _get_meta_attr(meta: type, attr: str, default: Any) -> Any:
     return getattr(meta, attr, getattr(DefaultCRUDMeta, attr, default))
 
 
-def _build_dtos(
-    model: type, exclude_fields: set[str]
-) -> tuple[type, type, type]:
+def _build_dtos(model: type, exclude_fields: set[str]) -> tuple[type, type, type]:
     """Build Read, Create, and Update DTOs for a model."""
     base = SQLAlchemyDTO[model]  # type: ignore[valid-type]
 
@@ -63,7 +61,8 @@ def _make_repository(model: type, session: AsyncSession) -> SQLAlchemyAsyncRepos
 
 
 def _make_service_provider(
-    model: type, service_class: type[CRUDService] | None  # type: ignore[type-arg]
+    model: type,
+    service_class: type[CRUDService] | None,  # type: ignore[type-arg]
 ) -> Any:
     """Create a dependency provider for the CRUD service."""
     svc_cls = service_class or CRUDService
@@ -122,7 +121,9 @@ def _make_list_handler(
                 filters_list.append(col == value)
         items, total = await service.repository.list_and_count(*filters_list)
         serialized = [_model_to_dict(item, _exclude) for item in items]
-        return PaginatedResponse(items=serialized, total=total, limit=limit, offset=offset)
+        return PaginatedResponse(
+            items=serialized, total=total, limit=limit, offset=offset
+        )
 
     # Add filterable fields to handler signature so Litestar exposes them as query params
     if _filterable:
@@ -131,13 +132,19 @@ def _make_list_handler(
 
         fn = list_handler.fn  # type: ignore[union-attr]
         sig = inspect.signature(fn)
-        new_params = [p for p in sig.parameters.values() if p.kind != inspect.Parameter.VAR_KEYWORD]
+        new_params = [
+            p
+            for p in sig.parameters.values()
+            if p.kind != inspect.Parameter.VAR_KEYWORD
+        ]
         for field_name in sorted(_filterable):
             new_params.append(
                 inspect.Parameter(
                     field_name,
                     inspect.Parameter.KEYWORD_ONLY,
-                    default=LitestarParam(default=None, query=field_name, required=False),
+                    default=LitestarParam(
+                        default=None, query=field_name, required=False
+                    ),
                     annotation=str | None,
                 )
             )
@@ -170,7 +177,11 @@ def _make_create_handler(
         service: CRUDService,  # type: ignore[type-arg]
     ) -> model:  # type: ignore[valid-type]
         processed = await service.before_create(
-            {c.key: getattr(data, c.key) for c in data.__table__.columns if hasattr(data, c.key)}  # type: ignore[union-attr, attr-defined]
+            {
+                c.key: getattr(data, c.key)
+                for c in data.__table__.columns  # type: ignore[union-attr, attr-defined]
+                if hasattr(data, c.key)
+            }
         )
         for key, value in processed.items():
             setattr(data, key, value)
@@ -238,7 +249,9 @@ def _make_update_handler(
         update_data = {
             c.key: getattr(data, c.key)
             for c in data.__table__.columns  # type: ignore[union-attr, attr-defined]
-            if c.key != "id" and hasattr(data, c.key) and getattr(data, c.key) is not None
+            if c.key != "id"
+            and hasattr(data, c.key)
+            and getattr(data, c.key) is not None
         }
         processed = await service.before_update(item_id, update_data)
         existing = await service.repository.get(item_id)
@@ -250,7 +263,12 @@ def _make_update_handler(
         return updated
 
     fn = update_handler.fn  # type: ignore[union-attr]
-    fn.__annotations__ = {"item_id": UUID, "data": model, "service": CRUDService, "return": model}
+    fn.__annotations__ = {
+        "item_id": UUID,
+        "data": model,
+        "service": CRUDService,
+        "return": model,
+    }
     return update_handler
 
 
@@ -284,7 +302,9 @@ def build_crud_router(model: type, meta: type) -> Router:
     operations: set[str] = set(_get_meta_attr(meta, "operations", set()))
     path: str | None = _get_meta_attr(meta, "path", None)
     tags: list[str] | None = _get_meta_attr(meta, "tags", None)
-    exclude_fields: set[str] = set(_get_meta_attr(meta, "exclude_fields", {"sa_orm_sentinel"}))
+    exclude_fields: set[str] = set(
+        _get_meta_attr(meta, "exclude_fields", {"sa_orm_sentinel"})
+    )
     public_operations: set[str] = set(_get_meta_attr(meta, "public_operations", set()))
     filterable_fields: set[str] = set(_get_meta_attr(meta, "filterable_fields", set()))
     service_class: type | None = _get_meta_attr(meta, "service_class", None)
@@ -302,18 +322,54 @@ def build_crud_router(model: type, meta: type) -> Router:
     handlers: list[Any] = []
 
     if "list" in operations:
-        handlers.append(_make_list_handler(model, read_dto, exclude_fields, filterable_fields, dependencies, "list" in public_operations, tags))
+        handlers.append(
+            _make_list_handler(
+                model,
+                read_dto,
+                exclude_fields,
+                filterable_fields,
+                dependencies,
+                "list" in public_operations,
+                tags,
+            )
+        )
 
     if "create" in operations:
-        handlers.append(_make_create_handler(model, create_dto, read_dto, dependencies, "create" in public_operations, tags))
+        handlers.append(
+            _make_create_handler(
+                model,
+                create_dto,
+                read_dto,
+                dependencies,
+                "create" in public_operations,
+                tags,
+            )
+        )
 
     if "read" in operations:
-        handlers.append(_make_read_handler(model, read_dto, dependencies, "read" in public_operations, tags))
+        handlers.append(
+            _make_read_handler(
+                model, read_dto, dependencies, "read" in public_operations, tags
+            )
+        )
 
     if "update" in operations:
-        handlers.append(_make_update_handler(model, update_dto, read_dto, dependencies, "update" in public_operations, tags))
+        handlers.append(
+            _make_update_handler(
+                model,
+                update_dto,
+                read_dto,
+                dependencies,
+                "update" in public_operations,
+                tags,
+            )
+        )
 
     if "delete" in operations:
-        handlers.append(_make_delete_handler(model, dependencies, "delete" in public_operations, tags))
+        handlers.append(
+            _make_delete_handler(
+                model, dependencies, "delete" in public_operations, tags
+            )
+        )
 
     return Router(path=path, route_handlers=handlers)

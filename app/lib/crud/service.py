@@ -14,7 +14,9 @@ class CRUDService(Generic[ModelT]):
     Override before_*/after_* methods for custom business logic.
     """
 
-    def __init__(self, session: Any, repository: SQLAlchemyAsyncRepository[Any]) -> None:
+    def __init__(
+        self, session: Any, repository: SQLAlchemyAsyncRepository[Any]
+    ) -> None:
         self.session = session
         self.repository = repository
 

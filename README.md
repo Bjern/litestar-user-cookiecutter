@@ -3,8 +3,9 @@
 [![CI](https://github.com/Bjern/litestar-user-cookiecutter/actions/workflows/ci.yml/badge.svg)](https://github.com/Bjern/litestar-user-cookiecutter/actions/workflows/ci.yml)
 ![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
 ![Litestar](https://img.shields.io/badge/litestar-2.x-purple)
+![Bandit](https://img.shields.io/badge/security-bandit-yellow)
 
-A Litestar web API with built-in user authentication and management, powered by [litestar-users](https://github.com/mvbosch/litestar-users).
+A Litestar web API cookiecutter with built-in user authentication, powered by [litestar-users](https://github.com/mvbosch/litestar-users), and an auto-CRUD plugin that generates REST endpoints from your database models — define a model, run a migration, and your API is ready.
 
 ## Tech Stack
 
@@ -17,7 +18,7 @@ A Litestar web API with built-in user authentication and management, powered by 
 - **Config**: pydantic-settings (`.env` file)
 - **Logging**: loguru (structured, rotated, with sensitive field redaction)
 - **Testing**: pytest + Litestar TestClient
-- **Linting**: ruff, mypy
+- **Linting**: ruff, mypy, bandit
 
 ## Setup
 
@@ -88,14 +89,27 @@ app/
 │       ├── schemas.py       # DTOs (registration, read, update)
 │       └── services.py      # UserService with token delivery hooks
 ├── lib/                     # Shared infrastructure
+│   ├── crud/                # Auto-CRUD plugin
+│   │   ├── mixin.py         # CRUDMixin + CRUDMeta configuration
+│   │   ├── discovery.py     # Auto-discovers app/domain/*/models.py
+│   │   ├── routes.py        # Handler factories (list, create, read, update, delete)
+│   │   ├── service.py       # CRUDService with before/after lifecycle hooks
+│   │   ├── pagination.py    # PaginatedResponse schema
+│   │   └── plugin.py        # CRUDPlugin (Litestar InitPlugin)
 │   ├── db.py                # Database plugin config
 │   ├── logging.py           # loguru setup, redaction, stdlib intercept
 │   ├── settings.py          # Environment settings (singleton via get_settings)
 │   └── security.py          # Auth plugin config
 tests/
 ├── conftest.py              # Test fixtures (in-memory DB, authenticated_client)
-└── test_users.py            # User flow tests (19 tests)
+├── test_users.py            # User flow tests
+├── test_crud_mixin.py       # CRUDMixin/CRUDMeta unit tests
+├── test_crud_discovery.py   # Model discovery tests
+├── test_crud_service.py     # Service lifecycle hook tests
+├── test_crud_pagination.py  # Pagination schema tests
+└── test_crud_routes.py      # CRUD integration tests
 alembic/                     # Database migrations
+.github/workflows/ci.yml     # CI: tests, ruff, mypy, bandit
 ```
 
 ## API Endpoints
@@ -401,4 +415,5 @@ Tests use an in-memory SQLite database with auto-created tables, so they are ful
 ```bash
 uv run ruff check .
 uv run mypy app/
+uv run bandit -r app/ -c pyproject.toml
 ```

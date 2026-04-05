@@ -32,7 +32,9 @@ def discover_models(domain_path: str | None = None) -> list[type]:
         domain_root = Path(domain_path)
 
     if not domain_root.is_dir():
-        logger.warning("crud.discovery | domain path not found: {path}", path=domain_root)
+        logger.warning(
+            "crud.discovery | domain path not found: {path}", path=domain_root
+        )
         return []
 
     for subdir in sorted(domain_root.iterdir()):
@@ -41,7 +43,9 @@ def discover_models(domain_path: str | None = None) -> list[type]:
             try:
                 importlib.import_module(module_name)
             except Exception:
-                logger.exception("crud.discovery | failed to import {mod}", mod=module_name)
+                logger.exception(
+                    "crud.discovery | failed to import {mod}", mod=module_name
+                )
                 raise
 
     models = []

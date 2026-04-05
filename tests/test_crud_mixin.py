@@ -25,29 +25,36 @@ def test_default_meta_has_empty_operations() -> None:
     meta = MinimalModel.CRUDMeta
     assert meta.operations == set()
 
+
 def test_default_meta_path_is_none() -> None:
     meta = MinimalModel.CRUDMeta
     assert meta.path is None
+
 
 def test_default_meta_tags_is_none() -> None:
     meta = MinimalModel.CRUDMeta
     assert meta.tags is None
 
+
 def test_default_meta_exclude_fields() -> None:
     meta = MinimalModel.CRUDMeta
     assert meta.exclude_fields == {"sa_orm_sentinel"}
+
 
 def test_default_meta_public_operations_empty() -> None:
     meta = MinimalModel.CRUDMeta
     assert meta.public_operations == set()
 
+
 def test_default_meta_filterable_fields_empty() -> None:
     meta = MinimalModel.CRUDMeta
     assert meta.filterable_fields == set()
 
+
 def test_default_meta_service_class_is_none() -> None:
     meta = MinimalModel.CRUDMeta
     assert meta.service_class is None
+
 
 def test_configured_meta_overrides() -> None:
     meta = ConfiguredModel.CRUDMeta
@@ -57,6 +64,7 @@ def test_configured_meta_overrides() -> None:
     assert meta.exclude_fields == {"sa_orm_sentinel", "name"}
     assert meta.public_operations == {"list"}
     assert meta.filterable_fields == {"name"}
+
 
 def test_crud_mixin_is_subclass_check() -> None:
     assert issubclass(MinimalModel, CRUDMixin)
