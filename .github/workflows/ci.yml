@@ -25,11 +25,17 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Run tests
+      - name: Run tests with coverage
         env:
           ENCODING_SECRET: ci-test-secret-key-32-characters
           AUTO_VERIFY_USERS: "true"
-        run: uv run pytest tests/ -v
+        run: uv run pytest tests/ -v --cov=app --cov-report=xml:coverage.xml --cov-report=term
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
 
   lint:
     runs-on: ubuntu-latest

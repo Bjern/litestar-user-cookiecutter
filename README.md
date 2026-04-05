@@ -406,14 +406,21 @@ uv run pytest tests/ -v
 
 # Run a specific test
 uv run pytest tests/ -k test_login_success
+
+# Run with coverage report (terminal)
+uv run pytest tests/ --cov=app --cov-report=term
+
+# Generate coverage XML for SonarQube
+uv run pytest tests/ --cov=app --cov-report=xml:coverage.xml
 ```
 
-Tests use an in-memory SQLite database with auto-created tables, so they are fully isolated and don't touch the development database.
+Tests use an in-memory SQLite database with auto-created tables, so they are fully isolated and don't touch the development database. CI automatically generates `coverage.xml` for SonarQube integration.
 
 ## Linting & Type Checking
 
 ```bash
 uv run ruff check .
+uv run ruff format --check .
 uv run mypy app/
 uv run bandit -r app/ -c pyproject.toml
 ```
