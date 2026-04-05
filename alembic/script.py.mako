@@ -8,6 +8,7 @@ Create Date: ${create_date}
 from typing import Sequence, Union
 
 from alembic import op
+import advanced_alchemy.types  # noqa: F401 — needed for GUID column type
 import sqlalchemy as sa
 ${imports if imports else ""}
 
