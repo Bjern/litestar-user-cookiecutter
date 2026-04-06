@@ -9,6 +9,14 @@ class CRUDMeta:
     filterable_fields: frozenset[str] = frozenset()
     service_class: type | None = None
 
+    # UI metadata (optional — consumed by /schema/ui-metadata endpoint)
+    icon: str | None = None
+    label: str | None = None
+    field_order: list[str] | None = None
+    list_columns: list[str] | None = None
+    searchable_fields: list[str] | None = None
+    field_overrides: dict[str, dict] | None = None
+
 
 VALID_OPERATIONS = frozenset({"create", "read", "list", "update", "delete"})
 

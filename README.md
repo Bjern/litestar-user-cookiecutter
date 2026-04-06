@@ -346,6 +346,104 @@ The URL path is auto-derived from the table name (pluralized). Override with `pa
 | `filterable_fields` | `set[str]` | `set()` | Columns exposed as query params on list |
 | `service_class` | `type \| None` | `None` | Custom service class for lifecycle hooks |
 
+### UI Metadata
+
+Models can declare optional UI hints that are served at `GET /schema/ui-metadata`. A schema-driven frontend can consume this endpoint to customise how each resource is displayed — icons, labels, column order, form grouping, and more.
+
+Add any of these attributes to your `CRUDMeta`:
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `icon` | `str \| None` | `None` | Icon identifier for navigation/menus (e.g. `"store"`, `"building"`) |
+| `label` | `str \| None` | `None` | Display name shown in the UI (e.g. `"Retail Stores"`) |
+| `field_order` | `list[str] \| None` | `None` | Field display order in forms |
+| `list_columns` | `list[str] \| None` | `None` | Columns shown in the list/table view |
+| `searchable_fields` | `list[str] \| None` | `None` | Fields used for search/typeahead |
+| `field_overrides` | `dict[str, dict] \| None` | `None` | Per-field UI config (widget type, grouping, etc.) |
+
+Example:
+
+```python
+class Store(UUIDBase, CRUDMixin):
+    name: Mapped[str] = mapped_column(String(255))
+    website: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    address: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    country: Mapped[Country | None] = mapped_column(Enum(Country), nullable=True)
+
+    class CRUDMeta:
+        operations = {"create", "read", "list", "update", "delete"}
+        tags = ["Stores"]
+        filterable_fields = {"name"}
+        # UI metadata
+        icon = "store"
+        label = "Stores"
+        field_order = ["name", "country", "address", "website"]
+        list_columns = ["name", "country"]
+        searchable_fields = ["name"]
+        field_overrides = {
+            "website": {"widget": "url"},
+            "address": {"widget": "json", "group": "location"},
+            "country": {"group": "location"},
+        }
+```
+
+The endpoint returns JSON with camelCase keys, keyed by model name. Models without any UI attributes are excluded:
+
+```json
+{
+  "Store": {
+    "icon": "store",
+    "label": "Stores",
+    "fieldOrder": ["name", "country", "address", "website"],
+    "listColumns": ["name", "country"],
+    "searchableFields": ["name"],
+    "fieldOverrides": {
+      "website": {"widget": "url"},
+      "address": {"widget": "json", "group": "location"},
+      "country": {"group": "location"}
+    }
+  }
+}
+```
+
+The `field_overrides` dict supports these keys per field:
+
+| Key | Description |
+|-----|-------------|
+| `widget` | Custom input type (`"url"`, `"json"`, `"textarea"`, etc.) |
+| `group` | Group fields into collapsible form sections |
+| `label` | Override the field's display label |
+| `hidden` | Hide the field from the UI |
+| `readOnly` | Render as read-only |
+| `displayField` | For relationship pickers, which field to show (defaults to `name`) |
+
+### Relationships
+
+Models with foreign keys and `relationship()` declarations automatically include expanded related objects in API responses. The frontend can detect relationships from `_id` suffix fields and render relationship pickers.
+
+```python
+class Product(UUIDBase, CRUDMixin):
+    name: Mapped[str] = mapped_column(String(255))
+    category_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("category.id"), nullable=True
+    )
+    category: Mapped["Category | None"] = relationship(lazy="joined")
+
+    class CRUDMeta:
+        operations = {"create", "read", "list", "update", "delete"}
+```
+
+API responses will include the expanded object alongside the FK:
+
+```json
+{
+  "id": "...",
+  "name": "Widget",
+  "category_id": "abc-123",
+  "category": {"id": "abc-123", "name": "Electronics"}
+}
+```
+
 ### Auth
 
 All generated routes require auth by default (via the app-level session middleware). Use `public_operations` to make specific operations public:

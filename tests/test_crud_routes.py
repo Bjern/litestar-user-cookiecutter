@@ -11,8 +11,10 @@ from advanced_alchemy.extensions.litestar import (
 )
 from litestar import Litestar
 from litestar.testing import TestClient
-from sqlalchemy import Boolean, String
-from sqlalchemy.orm import Mapped, mapped_column
+from uuid import UUID
+
+from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.lib.crud import CRUDMixin, CRUDPlugin
 from app.lib.crud.service import CRUDService
@@ -68,6 +70,53 @@ class HookedItem(UUIDBase, CRUDMixin):
         operations = {"create", "read"}
         service_class = TitleCaseService
         public_operations = {"create", "read"}
+
+
+class Category(UUIDBase, CRUDMixin):
+    """Test model for relationship parent."""
+
+    __tablename__ = "test_category"
+    name: Mapped[str] = mapped_column(String(100))
+
+    class CRUDMeta:
+        operations = {"create", "read", "list"}
+        public_operations = {"create", "read", "list"}
+
+
+class Product(UUIDBase, CRUDMixin):
+    """Test model with a foreign key relationship."""
+
+    __tablename__ = "test_product"
+    name: Mapped[str] = mapped_column(String(100))
+    category_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("test_category.id"), nullable=True
+    )
+    category: Mapped["Category | None"] = relationship(lazy="joined")
+
+    class CRUDMeta:
+        operations = {"create", "read", "list"}
+        public_operations = {"create", "read", "list"}
+
+
+@pytest.fixture()
+def rel_client():
+    db_config = SQLAlchemyAsyncConfig(
+        connection_string="sqlite+aiosqlite://",
+        session_dependency_key="session",
+        before_send_handler="autocommit",
+        create_all=True,
+        metadata=UUIDBase.metadata,
+    )
+    db_plugin = SQLAlchemyInitPlugin(config=db_config)
+    crud_plugin = CRUDPlugin(models=[Category, Product])
+
+    app = Litestar(
+        route_handlers=[],
+        plugins=[db_plugin, crud_plugin, litestar_users],
+    )
+
+    with TestClient(app=app) as tc:
+        yield tc
 
 
 @pytest.fixture()
@@ -271,3 +320,55 @@ def test_create_ignores_submitted_id(authenticated_crud_client: TestClient) -> N
     assert resp.status_code == 201
     # The server should assign its own id, not use the submitted one
     assert resp.json()["id"] != "00000000-0000-0000-0000-000000000000"
+
+
+# --- Relationship serialization ---
+
+
+def test_list_includes_expanded_relationship(rel_client: TestClient) -> None:
+    """List response includes nested relationship object."""
+    cat_resp = rel_client.post("/test-categories", json={"name": "Electronics"})
+    assert cat_resp.status_code == 201
+    cat_id = cat_resp.json()["id"]
+
+    rel_client.post(
+        "/test-products", json={"name": "Laptop", "category_id": cat_id}
+    )
+
+    resp = rel_client.get("/test-products")
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) >= 1
+    product = items[0]
+    assert product["category_id"] == cat_id
+    assert product["category"] is not None
+    assert product["category"]["id"] == cat_id
+    assert product["category"]["name"] == "Electronics"
+
+
+def test_read_includes_expanded_relationship(rel_client: TestClient) -> None:
+    """Single-item read includes nested relationship object."""
+    cat_resp = rel_client.post("/test-categories", json={"name": "Books"})
+    cat_id = cat_resp.json()["id"]
+
+    prod_resp = rel_client.post(
+        "/test-products", json={"name": "Novel", "category_id": cat_id}
+    )
+    prod_id = prod_resp.json()["id"]
+
+    resp = rel_client.get(f"/test-products/{prod_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["category"]["name"] == "Books"
+
+
+def test_null_relationship_serializes_as_null(rel_client: TestClient) -> None:
+    """Product without a category has category: null in response."""
+    prod_resp = rel_client.post("/test-products", json={"name": "Orphan"})
+    assert prod_resp.status_code == 201
+    prod_id = prod_resp.json()["id"]
+
+    resp = rel_client.get(f"/test-products/{prod_id}")
+    assert resp.status_code == 200
+    assert resp.json()["category"] is None
+

@@ -7,7 +7,9 @@ from advanced_alchemy.repository._async import SQLAlchemyAsyncRepository
 from litestar import Router, delete, get, patch, post
 from litestar.di import Provide
 from litestar.params import Parameter
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import RelationshipProperty
 
 from app.lib.crud.mixin import CRUDMeta as DefaultCRUDMeta
 from app.lib.crud.pagination import PaginatedResponse
@@ -29,24 +31,34 @@ def _get_meta_attr(meta: type, attr: str, default: Any) -> Any:
     return getattr(meta, attr, getattr(DefaultCRUDMeta, attr, default))
 
 
+def _get_relationship_keys(model: type) -> set[str]:
+    """Get the names of relationship attributes on a model."""
+    mapper: Any = sa_inspect(model)
+    return {rel.key for rel in mapper.relationships}
+
+
 def _build_dtos(model: type, exclude_fields: set[str]) -> tuple[type, type, type]:
     """Build Read, Create, and Update DTOs for a model."""
     base = SQLAlchemyDTO[model]  # type: ignore[valid-type]
+    rel_keys = _get_relationship_keys(model)
 
     read_dto = type(
         f"{model.__name__}ReadDTO",
         (base,),
         {"config": SQLAlchemyDTOConfig(exclude=exclude_fields)},
     )
+    # Exclude relationship attrs from create/update to prevent them from
+    # overriding FK columns (e.g. category=None overriding category_id).
+    write_exclude = exclude_fields | {"id"} | rel_keys
     create_dto = type(
         f"{model.__name__}CreateDTO",
         (base,),
-        {"config": SQLAlchemyDTOConfig(exclude=exclude_fields | {"id"})},
+        {"config": SQLAlchemyDTOConfig(exclude=write_exclude)},
     )
     update_dto = type(
         f"{model.__name__}UpdateDTO",
         (base,),
-        {"config": SQLAlchemyDTOConfig(exclude=exclude_fields | {"id"}, partial=True)},
+        {"config": SQLAlchemyDTOConfig(exclude=write_exclude, partial=True)},
     )
     return read_dto, create_dto, update_dto
 
@@ -74,13 +86,40 @@ def _make_service_provider(
     return provide_crud_service
 
 
-def _model_to_dict(instance: Any, exclude_fields: set[str]) -> dict[str, Any]:
-    """Convert a SQLAlchemy model instance to a plain dict, excluding specified fields."""
+def _related_to_dict(instance: Any) -> dict[str, Any]:
+    """Serialize a related model instance to a flat dict (columns only)."""
     return {
+        c.key: getattr(instance, c.key)
+        for c in instance.__table__.columns
+        if c.key != "sa_orm_sentinel" and hasattr(instance, c.key)
+    }
+
+
+def _model_to_dict(instance: Any, exclude_fields: set[str]) -> dict[str, Any]:
+    """Convert a SQLAlchemy model instance to a plain dict, excluding specified fields.
+
+    Includes loaded relationship objects as nested dicts (one level deep).
+    """
+    result = {
         c.key: getattr(instance, c.key)
         for c in instance.__table__.columns
         if c.key not in exclude_fields and hasattr(instance, c.key)
     }
+    mapper = sa_inspect(type(instance))
+    for rel in mapper.relationships:
+        assert isinstance(rel, RelationshipProperty)
+        key = rel.key
+        if key in exclude_fields:
+            continue
+        state = sa_inspect(instance)
+        if key not in state.dict:
+            continue
+        value = getattr(instance, key)
+        if value is None:
+            result[key] = None
+        else:
+            result[key] = _related_to_dict(value)
+    return result
 
 
 def _make_list_handler(
